@@ -382,6 +382,10 @@
 
     <script>
         let isDeleteMode = false;
+        const STORAGE_KEY = 'inventory_registry_state_v1';
+        const DEFAULT_ROW_COUNT = 15;
+        const MAX_STORED_IMAGE_SIZE = 900;
+        const STORED_IMAGE_QUALITY = 0.82;
 
         function initTable() {
             const tbody = document.getElementById('tableBody');
@@ -418,6 +422,302 @@
             `;
                 tbody.appendChild(tr);
             }
+        }
+
+        function readSavedState() {
+            try {
+                const savedState = localStorage.getItem(STORAGE_KEY);
+                return savedState ? JSON.parse(savedState) : null;
+            } catch (error) {
+                console.warn('Could not load saved inventory data.', error);
+                return null;
+            }
+        }
+
+        function getDefaultColumns() {
+            return [
+                { title: 'Part Photo', kind: 'photo' },
+                { title: 'Part Name', kind: 'text' },
+                { title: 'Cost', kind: 'text' },
+                { title: 'Qty', kind: 'text' },
+                { title: 'Material', kind: 'text' },
+                { title: 'Total', kind: 'text' }
+            ];
+        }
+
+        function getSavedColumns(savedState) {
+            if (!savedState || !Array.isArray(savedState.columns) || savedState.columns.length === 0) {
+                return getDefaultColumns();
+            }
+
+            return savedState.columns.map((column) => ({
+                title: typeof column.title === 'string' ? column.title : 'New Column',
+                kind: column.kind === 'photo' ? 'photo' : 'text'
+            }));
+        }
+
+        function createHeaderCell(title) {
+            const th = document.createElement('th');
+            th.contentEditable = 'true';
+            th.textContent = title;
+            th.onclick = function () { handleColDelete(this); };
+            return th;
+        }
+
+        function createTextCell(value) {
+            const td = document.createElement('td');
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'cell-input';
+            input.placeholder = '...';
+            input.value = value || '';
+            td.appendChild(input);
+            return td;
+        }
+
+        function createPhotoCell(src) {
+            const td = document.createElement('td');
+            const wrapper = document.createElement('div');
+            wrapper.className = 'photo-upload-wrapper';
+
+            const deleteButton = document.createElement('button');
+            deleteButton.type = 'button';
+            deleteButton.className = 'delete-img-btn';
+            deleteButton.textContent = 'x';
+            deleteButton.onclick = function (event) { removeImage(this, event); };
+
+            const uploadTarget = document.createElement('div');
+            uploadTarget.style.width = '100%';
+            uploadTarget.style.height = '100%';
+
+            const image = document.createElement('img');
+            image.src = src || '';
+            image.className = 'preview-img';
+            image.alt = 'Part photo';
+            image.style.display = src ? 'block' : 'none';
+            image.onclick = function (event) { previewImage(event, this); };
+
+            const fileInput = document.createElement('input');
+            fileInput.type = 'file';
+            fileInput.style.display = 'none';
+            fileInput.accept = 'image/*';
+            fileInput.onchange = function () { processImage(this); };
+
+            uploadTarget.onclick = function () { fileInput.click(); };
+            uploadTarget.appendChild(image);
+            wrapper.appendChild(deleteButton);
+            wrapper.appendChild(uploadTarget);
+            wrapper.appendChild(fileInput);
+
+            if (src) {
+                wrapper.classList.add('has-image');
+            }
+
+            td.appendChild(wrapper);
+            return td;
+        }
+
+        function optimizeImageForStorage(src, callback) {
+            const image = new Image();
+
+            image.onload = function () {
+                const scale = Math.min(1, MAX_STORED_IMAGE_SIZE / image.width, MAX_STORED_IMAGE_SIZE / image.height);
+                const width = Math.round(image.width * scale);
+                const height = Math.round(image.height * scale);
+                const canvas = document.createElement('canvas');
+                const context = canvas.getContext('2d');
+
+                if (!context) {
+                    callback(src);
+                    return;
+                }
+
+                canvas.width = width;
+                canvas.height = height;
+                context.drawImage(image, 0, 0, width, height);
+                callback(canvas.toDataURL('image/jpeg', STORED_IMAGE_QUALITY));
+            };
+
+            image.onerror = function () {
+                callback(src);
+            };
+
+            image.src = src;
+        }
+
+        function createStatusCell(value) {
+            const td = document.createElement('td');
+            td.className = 'status-col';
+
+            const statusContainer = document.createElement('div');
+            statusContainer.className = 'status-container';
+
+            const statusDot = document.createElement('div');
+            statusDot.className = 'status-dot';
+
+            const select = document.createElement('select');
+            select.className = 'status-select';
+            select.onchange = function () { updateRowStatus(this); };
+
+            [
+                { value: '', label: 'Set' },
+                { value: 'pending', label: 'Pending' },
+                { value: 'progress', label: 'Working' },
+                { value: 'complete', label: 'Done' }
+            ].forEach((optionData) => {
+                const option = document.createElement('option');
+                option.value = optionData.value;
+                option.textContent = optionData.label;
+                select.appendChild(option);
+            });
+
+            select.value = value || '';
+            statusContainer.appendChild(statusDot);
+            statusContainer.appendChild(select);
+            td.appendChild(statusContainer);
+            return td;
+        }
+
+        function getCellData(rowState, index) {
+            if (!rowState || !Array.isArray(rowState.cells)) {
+                return {};
+            }
+
+            return rowState.cells[index] || {};
+        }
+
+        function createTableRow(rowNumber, columns, rowState) {
+            const tr = document.createElement('tr');
+            const statusValue = rowState && typeof rowState.status === 'string' ? rowState.status : '';
+
+            if (statusValue) {
+                tr.setAttribute('data-status', statusValue);
+            }
+
+            const serialCell = document.createElement('td');
+            serialCell.style.color = '#ccc';
+            serialCell.textContent = String(rowNumber).padStart(2, '0');
+            tr.appendChild(serialCell);
+
+            columns.forEach((column, index) => {
+                const cellData = getCellData(rowState, index);
+                const cell = column.kind === 'photo'
+                    ? createPhotoCell(typeof cellData.image === 'string' ? cellData.image : '')
+                    : createTextCell(typeof cellData.text === 'string' ? cellData.text : '');
+
+                tr.appendChild(cell);
+            });
+
+            tr.appendChild(createStatusCell(statusValue));
+            return tr;
+        }
+
+        function renderHeader(columns, statusTitle) {
+            const headerRow = document.getElementById('header-row');
+            headerRow.innerHTML = '';
+
+            const serialHeader = document.createElement('th');
+            serialHeader.style.width = '40px';
+            serialHeader.className = 'no-delete';
+            serialHeader.textContent = 'S.No';
+            headerRow.appendChild(serialHeader);
+
+            columns.forEach((column) => {
+                headerRow.appendChild(createHeaderCell(column.title));
+            });
+
+            const statusHeader = document.createElement('th');
+            statusHeader.className = 'status-col no-delete';
+            statusHeader.id = 'th-status';
+            statusHeader.contentEditable = 'true';
+            statusHeader.textContent = statusTitle || 'Status';
+            headerRow.appendChild(statusHeader);
+        }
+
+        function restoreSavedState() {
+            const savedState = readSavedState();
+            if (!savedState) return;
+
+            const columns = getSavedColumns(savedState);
+            const rowStates = Array.isArray(savedState.rows) ? savedState.rows : [];
+            const rowCount = Math.max(DEFAULT_ROW_COUNT, rowStates.length);
+            const tbody = document.getElementById('tableBody');
+
+            document.getElementById('edit-date').textContent =
+                typeof savedState.date === 'string' ? savedState.date : 'April 14, 2026';
+            document.getElementById('edit-title').textContent =
+                typeof savedState.title === 'string' ? savedState.title : 'Product Registry';
+            document.getElementById('toggleStatus').checked = savedState.statusVisible !== false;
+
+            renderHeader(columns, typeof savedState.statusTitle === 'string' ? savedState.statusTitle : 'Status');
+            tbody.innerHTML = '';
+
+            for (let i = 1; i <= rowCount; i++) {
+                tbody.appendChild(createTableRow(i, columns, rowStates[i - 1]));
+            }
+
+            toggleStatusColumn(false);
+        }
+
+        function getCurrentColumns() {
+            const headerCells = Array.from(document.querySelectorAll('#header-row th'));
+            const statusHeader = document.getElementById('th-status');
+            const statusIndex = statusHeader ? statusHeader.cellIndex : headerCells.length;
+
+            return headerCells.slice(1, statusIndex).map((headerCell, index) => {
+                const sampleCell = document.querySelector(`#tableBody tr td:nth-child(${index + 2})`);
+                const hasPhotoUpload = sampleCell && sampleCell.querySelector('.photo-upload-wrapper');
+
+                return {
+                    title: headerCell.textContent || '',
+                    kind: hasPhotoUpload ? 'photo' : 'text'
+                };
+            });
+        }
+
+        function getCurrentRows(columns) {
+            return Array.from(document.querySelectorAll('#tableBody tr')).map((row) => {
+                const rowStatus = row.querySelector('.status-select');
+                const cells = Array.from(row.cells).slice(1, columns.length + 1);
+
+                return {
+                    cells: cells.map((cell, index) => {
+                        if (columns[index].kind === 'photo') {
+                            const image = cell.querySelector('.preview-img');
+                            return { image: image ? image.getAttribute('src') || '' : '' };
+                        }
+
+                        const input = cell.querySelector('.cell-input');
+                        return { text: input ? input.value : '' };
+                    }),
+                    status: rowStatus ? rowStatus.value : ''
+                };
+            });
+        }
+
+        function saveState() {
+            const columns = getCurrentColumns();
+            const state = {
+                title: document.getElementById('edit-title').textContent || '',
+                date: document.getElementById('edit-date').textContent || '',
+                statusTitle: document.getElementById('th-status').textContent || 'Status',
+                statusVisible: document.getElementById('toggleStatus').checked,
+                columns,
+                rows: getCurrentRows(columns)
+            };
+
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+            } catch (error) {
+                console.warn('Could not save inventory data.', error);
+            }
+        }
+
+        function bindAutoSave() {
+            const captureArea = document.getElementById('capture-area');
+            captureArea.addEventListener('input', saveState);
+            captureArea.addEventListener('change', saveState);
+            window.addEventListener('beforeunload', saveState);
         }
 
         // Modal Controls
@@ -495,10 +795,10 @@
             const rows = document.querySelectorAll('tbody tr');
             rows.forEach(tr => {
                 const statusTd = tr.querySelector('.status-col');
-                const newTd = document.createElement('td');
-                newTd.innerHTML = '<input type="text" class="cell-input" placeholder="...">';
-                tr.insertBefore(newTd, statusTd);
+                tr.insertBefore(createTextCell(''), statusTd);
             });
+
+            saveState();
         }
 
         function toggleDeleteMode() {
@@ -524,6 +824,7 @@
                 const rows = document.querySelectorAll('#mainTable tr');
                 rows.forEach(row => row.deleteCell(index));
                 toggleDeleteMode();
+                saveState();
             }
         }
 
@@ -532,11 +833,16 @@
             if (file) {
                 const reader = new FileReader();
                 reader.onload = (e) => {
-                    const wrapper = input.parentElement;
-                    const img = wrapper.querySelector('.preview-img');
-                    img.src = e.target.result;
-                    img.style.display = 'block';
-                    wrapper.classList.add('has-image');
+                    if (typeof e.target.result !== 'string') return;
+
+                    optimizeImageForStorage(e.target.result, (optimizedSrc) => {
+                        const wrapper = input.parentElement;
+                        const img = wrapper.querySelector('.preview-img');
+                        img.src = optimizedSrc;
+                        img.style.display = 'block';
+                        wrapper.classList.add('has-image');
+                        saveState();
+                    });
                 };
                 reader.readAsDataURL(file);
             }
@@ -549,6 +855,7 @@
             img.src = "";
             img.style.display = "none";
             wrapper.classList.remove('has-image');
+            saveState();
         }
 
         function previewImage(event, img) {
@@ -558,16 +865,24 @@
             document.getElementById('imageModal').classList.add('active');
         }
 
-        function toggleStatusColumn() {
+        function toggleStatusColumn(shouldSave = true) {
             const isVisible = document.getElementById('toggleStatus').checked;
             document.querySelectorAll('.status-col').forEach(col => col.classList.toggle('hidden', !isVisible));
+            if (shouldSave) {
+                saveState();
+            }
         }
 
         function updateRowStatus(select) {
             select.closest('tr').setAttribute('data-status', select.value);
+            saveState();
         }
 
-        window.onload = initTable;
+        window.onload = function () {
+            initTable();
+            restoreSavedState();
+            bindAutoSave();
+        };
     </script>
 
 </body>
