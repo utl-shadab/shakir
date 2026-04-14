@@ -40,6 +40,44 @@
             padding: 20px;
         }
 
+        .export-header {
+            display: none;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 24px;
+            margin-bottom: 24px;
+            padding-bottom: 18px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .exporting .export-header {
+            display: flex;
+        }
+
+        .export-header-label {
+            margin: 0 0 6px;
+            color: #888;
+            font-size: 0.62rem;
+            font-weight: 700;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+
+        .export-header-name {
+            display: block;
+            font-family: 'Playfair Display', serif;
+            font-size: 1.65rem;
+            line-height: 1.1;
+        }
+
+        .export-header-contact {
+            margin: 0;
+            text-align: right;
+            color: #555;
+            font-size: 0.76rem;
+            line-height: 1.7;
+        }
+
         header {
             display: flex;
             justify-content: space-between;
@@ -198,6 +236,46 @@
             min-width: 50px;
         }
 
+        .serial-cell {
+            color: #ccc;
+            white-space: nowrap;
+        }
+
+        .serial-number {
+            display: inline-block;
+            min-width: 22px;
+        }
+
+        .row-delete-btn {
+            width: 20px;
+            height: 20px;
+            margin-left: 6px;
+            border: 1px solid var(--danger);
+            border-radius: 4px;
+            background: white;
+            color: var(--danger);
+            cursor: pointer;
+            font-size: 11px;
+            line-height: 1;
+            opacity: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: opacity 0.2s;
+        }
+
+        .trash-icon {
+            width: 20px;
+            height: 20px;
+            display: block;
+            pointer-events: none;
+        }
+
+        tbody tr:hover .row-delete-btn,
+        .row-delete-btn:focus {
+            opacity: 1;
+        }
+
         .photo-upload-wrapper {
             width: 100px;
             height: 60px;
@@ -291,6 +369,36 @@
             display: none !important;
         }
 
+        .export-hidden,
+        .exporting .no-pdf {
+            display: none !important;
+        }
+
+        .grand-total-bar {
+            width: min(100%, 360px);
+            margin: 24px 0 0 auto;
+            padding: 14px 0;
+            border-top: 2px solid var(--accent);
+            border-bottom: 2px solid var(--accent);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .grand-total-bar span {
+            color: #777;
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        .grand-total-bar strong {
+            font-size: 1.1rem;
+            white-space: nowrap;
+        }
+
         /* Custom Modal System */
         .modal-overlay {
             display: none;
@@ -373,6 +481,19 @@
             .controls {
                 justify-content: flex-start;
             }
+
+            .grand-total-bar {
+                margin-left: 0;
+            }
+
+            .export-header {
+                flex-direction: column;
+                gap: 10px;
+            }
+
+            .export-header-contact {
+                text-align: left;
+            }
         }
     </style>
 </head>
@@ -380,12 +501,25 @@
 <body>
 
     <div class="container" id="capture-area">
+        <div class="export-header">
+            <div>
+                <p class="export-header-label">Quotation By</p>
+                <strong class="export-header-name">Shakir Designer</strong>
+            </div>
+            <p class="export-header-contact">
+                Contact: 8791453147<br>
+                Email: shakirmohd925@gmail.com
+            </p>
+        </div>
+
         <header>
             <div class="title-group">
                 <p id="edit-date" class="meta-date" contenteditable="true">April 14, 2026</p>
                 <h1 id="edit-title" contenteditable="true">Product Registry</h1>
             </div>
             <div class="controls no-pdf">
+                <button class="btn" onclick="addRow()">+ Add Row</button>
+                <button class="btn btn-danger" onclick="deleteLastRow()">Delete Last Row</button>
                 <button class="btn" onclick="addColumn()">+ Add Column</button>
                 <button class="btn btn-danger" id="delModeBtn" onclick="toggleDeleteMode()">Select Column to
                     Remove</button>
@@ -413,6 +547,10 @@
                 <tbody id="tableBody"></tbody>
             </table>
         </div>
+        <div class="grand-total-bar" aria-live="polite">
+            <span>Grand Total</span>
+            <strong id="grandTotalValue">INR 0.00</strong>
+        </div>
     </div>
 
     <div class="modal-overlay" id="pdfModal">
@@ -436,43 +574,16 @@
         const DEFAULT_ROW_COUNT = 15;
         const MAX_STORED_IMAGE_SIZE = 900;
         const STORED_IMAGE_QUALITY = 0.82;
+        const TRASH_ICON_SVG = '<svg class="trash-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm1 7h2v8h-2v-8Zm4 0h2v8h-2v-8ZM7 9h10l-1 12H8L7 9Z" fill="currentColor"></path></svg>';
         let draggedColumnIndex = null;
         let dragInsertAfter = false;
 
         function initTable() {
             const tbody = document.getElementById('tableBody');
+            const columns = getDefaultColumns();
             tbody.innerHTML = '';
-            for (let i = 1; i <= 15; i++) {
-                const tr = document.createElement('tr');
-                tr.innerHTML = `
-                <td style="color:#ccc;">${String(i).padStart(2, '0')}</td>
-                <td>
-                    <div class="photo-upload-wrapper">
-                        <button class="delete-img-btn" onclick="removeImage(this, event)">×</button>
-                        <div style="width:100%; height:100%;" onclick="this.nextElementSibling.click()">
-                            <img src="" class="preview-img" onclick="previewImage(event, this)">
-                        </div>
-                        <input type="file" style="display:none" accept="image/*" onchange="processImage(this)">
-                    </div>
-                </td>
-                <td><input type="text" class="cell-input" placeholder="..."></td>
-                <td><input type="text" class="cell-input" placeholder="..."></td>
-                <td><input type="text" class="cell-input" placeholder="..."></td>
-                <td><input type="text" class="cell-input" placeholder="..."></td>
-                <td><input type="text" class="cell-input" placeholder="..."></td>
-                <td class="status-col">
-                    <div class="status-container">
-                        <div class="status-dot"></div>
-                        <select class="status-select" onchange="updateRowStatus(this)">
-                            <option value="">Set</option>
-                            <option value="pending">Pending</option>
-                            <option value="progress">Working</option>
-                            <option value="complete">Done</option>
-                        </select>
-                    </div>
-                </td>
-            `;
-                tbody.appendChild(tr);
+            for (let i = 1; i <= DEFAULT_ROW_COUNT; i++) {
+                tbody.appendChild(createTableRow(i, columns));
             }
         }
 
@@ -535,7 +646,8 @@
             const deleteButton = document.createElement('button');
             deleteButton.type = 'button';
             deleteButton.className = 'delete-img-btn';
-            deleteButton.textContent = 'x';
+            deleteButton.innerHTML = TRASH_ICON_SVG;
+            deleteButton.setAttribute('aria-label', 'Delete image');
             deleteButton.onclick = function (event) { removeImage(this, event); };
 
             const uploadTarget = document.createElement('div');
@@ -638,6 +750,26 @@
             return rowState.cells[index] || {};
         }
 
+        function createSerialCell(rowNumber) {
+            const td = document.createElement('td');
+            td.className = 'serial-cell';
+
+            const serialNumber = document.createElement('span');
+            serialNumber.className = 'serial-number';
+            serialNumber.textContent = String(rowNumber).padStart(2, '0');
+
+            const deleteButton = document.createElement('button');
+            deleteButton.type = 'button';
+            deleteButton.className = 'row-delete-btn no-pdf';
+            deleteButton.innerHTML = TRASH_ICON_SVG;
+            deleteButton.setAttribute('aria-label', `Delete row ${rowNumber}`);
+            deleteButton.onclick = function () { deleteRow(td.closest('tr')); };
+
+            td.appendChild(serialNumber);
+            td.appendChild(deleteButton);
+            return td;
+        }
+
         function createTableRow(rowNumber, columns, rowState) {
             const tr = document.createElement('tr');
             const statusValue = rowState && typeof rowState.status === 'string' ? rowState.status : '';
@@ -646,10 +778,7 @@
                 tr.setAttribute('data-status', statusValue);
             }
 
-            const serialCell = document.createElement('td');
-            serialCell.style.color = '#ccc';
-            serialCell.textContent = String(rowNumber).padStart(2, '0');
-            tr.appendChild(serialCell);
+            tr.appendChild(createSerialCell(rowNumber));
 
             columns.forEach((column, index) => {
                 const cellData = getCellData(rowState, index);
@@ -662,6 +791,60 @@
 
             tr.appendChild(createStatusCell(statusValue));
             return tr;
+        }
+
+        function renumberRows(visibleOnly = false) {
+            const rows = Array.from(document.querySelectorAll('#tableBody tr'));
+            const rowsToNumber = visibleOnly
+                ? rows.filter((row) => !row.classList.contains('export-hidden'))
+                : rows;
+
+            rowsToNumber.forEach((row, index) => {
+                const serialNumber = row.querySelector('.serial-number');
+                const deleteButton = row.querySelector('.row-delete-btn');
+                const rowNumber = String(index + 1).padStart(2, '0');
+
+                if (serialNumber) {
+                    serialNumber.textContent = rowNumber;
+                }
+
+                if (deleteButton) {
+                    deleteButton.setAttribute('aria-label', `Delete row ${index + 1}`);
+                }
+            });
+        }
+
+        function addRow() {
+            const tbody = document.getElementById('tableBody');
+            const row = createTableRow(tbody.rows.length + 1, getCurrentColumns());
+            tbody.appendChild(row);
+            toggleStatusColumn(false);
+            renumberRows();
+            updateGrandTotal();
+            saveState();
+        }
+
+        function deleteRow(row) {
+            const tbody = document.getElementById('tableBody');
+
+            if (!row || tbody.rows.length <= 1) {
+                alert('At least one row is required.');
+                return;
+            }
+
+            if (!confirm('Delete this row?')) {
+                return;
+            }
+
+            row.remove();
+            renumberRows();
+            updateGrandTotal();
+            saveState();
+        }
+
+        function deleteLastRow() {
+            const rows = document.querySelectorAll('#tableBody tr');
+            deleteRow(rows[rows.length - 1]);
         }
 
         function renderHeader(columns, statusTitle) {
@@ -693,7 +876,8 @@
 
             const columns = getSavedColumns(savedState);
             const rowStates = Array.isArray(savedState.rows) ? savedState.rows : [];
-            const rowCount = Math.max(DEFAULT_ROW_COUNT, rowStates.length);
+            const savedRowCount = Number.isInteger(savedState.rowCount) ? savedState.rowCount : null;
+            const rowCount = savedRowCount ? Math.max(1, savedRowCount) : Math.max(DEFAULT_ROW_COUNT, rowStates.length);
             const tbody = document.getElementById('tableBody');
 
             document.getElementById('edit-date').textContent =
@@ -710,6 +894,8 @@
             }
 
             toggleStatusColumn(false);
+            renumberRows();
+            updateGrandTotal();
         }
 
         function getCurrentColumns() {
@@ -748,13 +934,114 @@
             });
         }
 
+        function normalizeColumnTitle(value) {
+            return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        }
+
+        function findColumnIndex(possibleTitles) {
+            const normalizedTitles = possibleTitles.map(normalizeColumnTitle);
+            const headerCells = Array.from(document.querySelectorAll('#header-row th'));
+
+            for (const headerCell of headerCells) {
+                const title = normalizeColumnTitle(headerCell.textContent);
+                const isMatch = normalizedTitles.some((possibleTitle) => title.includes(possibleTitle));
+
+                if (isMatch) {
+                    return headerCell.cellIndex;
+                }
+            }
+
+            return -1;
+        }
+
+        function getCellText(row, cellIndex) {
+            if (cellIndex < 0 || !row.cells[cellIndex]) {
+                return '';
+            }
+
+            const input = row.cells[cellIndex].querySelector('.cell-input');
+            return input ? input.value : row.cells[cellIndex].textContent || '';
+        }
+
+        function parseNumber(value) {
+            const match = String(value || '').replace(/,/g, '').match(/-?\d+(\.\d+)?/);
+            return match ? Number(match[0]) : 0;
+        }
+
+        function formatCurrency(value) {
+            return `INR ${value.toLocaleString('en-IN', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+            })}`;
+        }
+
+        function isRowFilled(row) {
+            const textInputs = Array.from(row.querySelectorAll('.cell-input'));
+            const hasText = textInputs.some((input) => input.value.trim() !== '');
+            const image = row.querySelector('.preview-img');
+            const hasImage = image && image.getAttribute('src');
+            const status = row.querySelector('.status-select');
+            const hasStatus = status && status.value;
+
+            return Boolean(hasText || hasImage || hasStatus);
+        }
+
+        function calculateGrandTotal() {
+            const totalIndex = findColumnIndex(['total', 'amount', 'line total']);
+            const costIndex = findColumnIndex(['cost', 'unit price', 'price', 'rate']);
+            const quantityIndex = findColumnIndex(['qty', 'quantity']);
+
+            return Array.from(document.querySelectorAll('#tableBody tr')).reduce((sum, row) => {
+                if (!isRowFilled(row)) {
+                    return sum;
+                }
+
+                const totalValue = getCellText(row, totalIndex).trim();
+
+                if (totalValue) {
+                    return sum + parseNumber(totalValue);
+                }
+
+                return sum + (parseNumber(getCellText(row, costIndex)) * parseNumber(getCellText(row, quantityIndex)));
+            }, 0);
+        }
+
+        function updateGrandTotal() {
+            const grandTotalValue = document.getElementById('grandTotalValue');
+
+            if (grandTotalValue) {
+                grandTotalValue.textContent = formatCurrency(calculateGrandTotal());
+            }
+        }
+
+        function hideEmptyRowsForExport() {
+            const hiddenRows = [];
+
+            document.querySelectorAll('#tableBody tr').forEach((row) => {
+                if (!isRowFilled(row)) {
+                    row.classList.add('export-hidden');
+                    hiddenRows.push(row);
+                }
+            });
+
+            renumberRows(true);
+            return hiddenRows;
+        }
+
+        function restoreRowsAfterExport(hiddenRows) {
+            hiddenRows.forEach((row) => row.classList.remove('export-hidden'));
+            renumberRows();
+        }
+
         function saveState() {
+            updateGrandTotal();
             const columns = getCurrentColumns();
             const state = {
                 title: document.getElementById('edit-title').textContent || '',
                 date: document.getElementById('edit-date').textContent || '',
                 statusTitle: document.getElementById('th-status').textContent || 'Status',
                 statusVisible: document.getElementById('toggleStatus').checked,
+                rowCount: document.querySelectorAll('#tableBody tr').length,
                 columns,
                 rows: getCurrentRows(columns)
             };
@@ -899,42 +1186,74 @@
         }
 
         function executePDFExport() {
+            updateGrandTotal();
             const name = document.getElementById('pdfFileName').value || "Report";
             closeExportModal();
 
             const element = document.getElementById('capture-area');
-            const controls = document.querySelector('.controls');
             const tableScroll = document.getElementById('table-scroll');
             const originalElementWidth = element.style.width;
             const originalTableOverflow = tableScroll.style.overflow;
             const originalTableWidth = tableScroll.style.width;
-            const exportWidth = Math.max(element.scrollWidth, tableScroll.scrollWidth);
+            const hiddenRows = hideEmptyRowsForExport();
 
-            controls.style.display = 'none';
+            element.classList.add('exporting');
+            const exportWidth = Math.ceil(Math.max(element.scrollWidth, tableScroll.scrollWidth));
             element.style.width = `${exportWidth}px`;
             tableScroll.style.overflow = 'visible';
             tableScroll.style.width = `${exportWidth}px`;
+            const exportHeight = Math.ceil(Math.max(element.scrollHeight, element.offsetHeight));
+            const pdfMargin = 20;
+            const pdfHeightBuffer = 120;
+            const maxSinglePageHeight = 1600;
+            const preferredPageHeight = exportHeight + (pdfMargin * 2) + pdfHeightBuffer;
+            const pdfPageHeight = preferredPageHeight <= maxSinglePageHeight
+                ? preferredPageHeight
+                : maxSinglePageHeight;
+            const pdfPageWidth = exportWidth + (pdfMargin * 2);
 
             const restoreExportView = () => {
-                controls.style.display = 'flex';
+                element.classList.remove('exporting');
+                restoreRowsAfterExport(hiddenRows);
                 element.style.width = originalElementWidth;
                 tableScroll.style.overflow = originalTableOverflow;
                 tableScroll.style.width = originalTableWidth;
             };
 
-            html2pdf().set({
-                margin: 0.2,
-                filename: name + '.pdf',
-                image: { type: 'jpeg', quality: 0.98 },
-                html2canvas: { scale: 2 },
-                jsPDF: { unit: 'in', format: 'a4', orientation: 'landscape' }
-            }).from(element).toPdf().get('pdf').then((pdf) => {
-                addPDFWatermark(pdf);
-            }).save().then(() => {
+            try {
+                html2pdf().set({
+                    margin: pdfMargin,
+                    filename: name + '.pdf',
+                    image: { type: 'jpeg', quality: 0.98 },
+                    html2canvas: {
+                        scale: 2,
+                        width: exportWidth,
+                        height: exportHeight,
+                        windowWidth: exportWidth,
+                        windowHeight: exportHeight + pdfHeightBuffer,
+                        scrollX: 0,
+                        scrollY: 0
+                    },
+                    pagebreak: {
+                        mode: ['css', 'legacy'],
+                        avoid: ['tr', '.grand-total-bar']
+                    },
+                    jsPDF: {
+                        unit: 'px',
+                        format: [pdfPageWidth, pdfPageHeight],
+                        orientation: pdfPageWidth >= pdfPageHeight ? 'landscape' : 'portrait'
+                    }
+                }).from(element).toPdf().get('pdf').then((pdf) => {
+                    addPDFWatermark(pdf);
+                }).save().then(() => {
+                    restoreExportView();
+                }).catch(() => {
+                    restoreExportView();
+                });
+            } catch (error) {
+                console.warn('Could not export PDF.', error);
                 restoreExportView();
-            }).catch(() => {
-                restoreExportView();
-            });
+            }
         }
 
         // Enter Key Trigger for Modal
@@ -1048,6 +1367,7 @@
             restoreSavedState();
             enableColumnDragging();
             bindAutoSave();
+            updateGrandTotal();
         };
     </script>
 
