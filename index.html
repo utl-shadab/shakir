@@ -21,12 +21,17 @@
             --danger: #ff4d4d;
         }
 
+        * {
+            box-sizing: border-box;
+        }
+
         body {
             font-family: 'Inter', sans-serif;
             background: var(--bg);
             color: var(--text);
             margin: 0;
             padding: 20px;
+            overflow-x: hidden;
         }
 
         .container {
@@ -103,8 +108,18 @@
             background: #333;
         }
 
-        table {
+        .table-scroll {
             width: 100%;
+            max-width: 100%;
+            overflow-x: auto;
+            overflow-y: hidden;
+            padding-bottom: 8px;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        table {
+            width: max-content;
+            min-width: 100%;
             border-collapse: collapse;
         }
 
@@ -118,6 +133,33 @@
             border-bottom: 1px solid var(--accent);
             color: #888;
             position: relative;
+        }
+
+        thead th:not(.no-delete) {
+            cursor: grab;
+        }
+
+        thead th.dragging {
+            opacity: 0.45;
+        }
+
+        thead th.drag-over-before::before,
+        thead th.drag-over-after::after {
+            content: '';
+            position: absolute;
+            top: 6px;
+            bottom: 6px;
+            width: 3px;
+            background: var(--accent);
+            border-radius: 999px;
+        }
+
+        thead th.drag-over-before::before {
+            left: 0;
+        }
+
+        thead th.drag-over-after::after {
+            right: 0;
         }
 
         .delete-mode th:not(.no-delete) {
@@ -148,6 +190,12 @@
             padding: 10px;
             vertical-align: middle;
             position: relative;
+            min-width: 120px;
+        }
+
+        th:first-child,
+        td:first-child {
+            min-width: 50px;
         }
 
         .photo-upload-wrapper {
@@ -348,21 +396,23 @@
             </div>
         </header>
 
-        <table id="mainTable">
-            <thead>
-                <tr id="header-row">
-                    <th style="width: 40px;" class="no-delete">S.No</th>
-                    <th contenteditable="true" onclick="handleColDelete(this)">Part Photo</th>
-                    <th contenteditable="true" onclick="handleColDelete(this)">Part Name</th>
-                    <th contenteditable="true" onclick="handleColDelete(this)">Cost</th>
-                    <th contenteditable="true" onclick="handleColDelete(this)">Qty</th>
-                    <th contenteditable="true" onclick="handleColDelete(this)">Material</th>
-                    <th contenteditable="true" onclick="handleColDelete(this)">Total</th>
-                    <th class="status-col no-delete" id="th-status" contenteditable="true">Status</th>
-                </tr>
-            </thead>
-            <tbody id="tableBody"></tbody>
-        </table>
+        <div class="table-scroll" id="table-scroll">
+            <table id="mainTable">
+                <thead>
+                    <tr id="header-row">
+                        <th style="width: 40px;" class="no-delete">S.No</th>
+                        <th contenteditable="true" onclick="handleColDelete(this)">Part Photo</th>
+                        <th contenteditable="true" onclick="handleColDelete(this)">Part Name</th>
+                        <th contenteditable="true" onclick="handleColDelete(this)">Cost</th>
+                        <th contenteditable="true" onclick="handleColDelete(this)">Qty</th>
+                        <th contenteditable="true" onclick="handleColDelete(this)">Material</th>
+                        <th contenteditable="true" onclick="handleColDelete(this)">Total</th>
+                        <th class="status-col no-delete" id="th-status" contenteditable="true">Status</th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody"></tbody>
+            </table>
+        </div>
     </div>
 
     <div class="modal-overlay" id="pdfModal">
@@ -386,6 +436,8 @@
         const DEFAULT_ROW_COUNT = 15;
         const MAX_STORED_IMAGE_SIZE = 900;
         const STORED_IMAGE_QUALITY = 0.82;
+        let draggedColumnIndex = null;
+        let dragInsertAfter = false;
 
         function initTable() {
             const tbody = document.getElementById('tableBody');
@@ -632,6 +684,7 @@
             statusHeader.contentEditable = 'true';
             statusHeader.textContent = statusTitle || 'Status';
             headerRow.appendChild(statusHeader);
+            enableColumnDragging();
         }
 
         function restoreSavedState() {
@@ -720,6 +773,99 @@
             window.addEventListener('beforeunload', saveState);
         }
 
+        function clearColumnDragStyles() {
+            document.querySelectorAll('#header-row th').forEach((headerCell) => {
+                headerCell.classList.remove('dragging', 'drag-over-before', 'drag-over-after');
+            });
+        }
+
+        function clearColumnDropStyles() {
+            document.querySelectorAll('#header-row th').forEach((headerCell) => {
+                headerCell.classList.remove('drag-over-before', 'drag-over-after');
+            });
+        }
+
+        function handleHeaderDragStart(event) {
+            if (isDeleteMode || event.currentTarget.classList.contains('no-delete')) {
+                event.preventDefault();
+                return;
+            }
+
+            draggedColumnIndex = event.currentTarget.cellIndex;
+            event.currentTarget.classList.add('dragging');
+            event.dataTransfer.effectAllowed = 'move';
+            event.dataTransfer.setData('text/plain', String(draggedColumnIndex));
+        }
+
+        function handleHeaderDragOver(event) {
+            if (draggedColumnIndex === null || isDeleteMode || event.currentTarget.classList.contains('no-delete')) {
+                return;
+            }
+
+            event.preventDefault();
+            clearColumnDropStyles();
+
+            const headerCell = event.currentTarget;
+            const bounds = headerCell.getBoundingClientRect();
+            dragInsertAfter = event.clientX > bounds.left + (bounds.width / 2);
+            headerCell.classList.add(dragInsertAfter ? 'drag-over-after' : 'drag-over-before');
+            event.dataTransfer.dropEffect = 'move';
+        }
+
+        function handleHeaderDrop(event) {
+            if (draggedColumnIndex === null || isDeleteMode || event.currentTarget.classList.contains('no-delete')) {
+                return;
+            }
+
+            event.preventDefault();
+            moveColumn(draggedColumnIndex, event.currentTarget.cellIndex, dragInsertAfter);
+            draggedColumnIndex = null;
+            dragInsertAfter = false;
+            clearColumnDragStyles();
+        }
+
+        function handleHeaderDragEnd() {
+            draggedColumnIndex = null;
+            dragInsertAfter = false;
+            clearColumnDragStyles();
+        }
+
+        function moveColumn(fromIndex, targetIndex, insertAfter) {
+            const targetPosition = insertAfter ? targetIndex + 1 : targetIndex;
+            const normalizedTarget = fromIndex < targetPosition ? targetPosition - 1 : targetPosition;
+
+            if (fromIndex === normalizedTarget) {
+                return;
+            }
+
+            document.querySelectorAll('#mainTable tr').forEach((row) => {
+                const movingCell = row.children[fromIndex];
+
+                if (!movingCell) {
+                    return;
+                }
+
+                row.removeChild(movingCell);
+                row.insertBefore(movingCell, row.children[normalizedTarget] || null);
+            });
+
+            enableColumnDragging();
+            saveState();
+        }
+
+        function enableColumnDragging() {
+            document.querySelectorAll('#header-row th').forEach((headerCell) => {
+                const canDrag = !headerCell.classList.contains('no-delete') && !isDeleteMode;
+                headerCell.draggable = canDrag;
+                headerCell.title = canDrag ? 'Drag to reorder column' : '';
+                headerCell.ondragstart = canDrag ? handleHeaderDragStart : null;
+                headerCell.ondragover = canDrag ? handleHeaderDragOver : null;
+                headerCell.ondragleave = canDrag ? clearColumnDropStyles : null;
+                headerCell.ondrop = canDrag ? handleHeaderDrop : null;
+                headerCell.ondragend = canDrag ? handleHeaderDragEnd : null;
+            });
+        }
+
         // Modal Controls
         function openExportModal() {
             const modal = document.getElementById('pdfModal');
@@ -758,7 +904,23 @@
 
             const element = document.getElementById('capture-area');
             const controls = document.querySelector('.controls');
+            const tableScroll = document.getElementById('table-scroll');
+            const originalElementWidth = element.style.width;
+            const originalTableOverflow = tableScroll.style.overflow;
+            const originalTableWidth = tableScroll.style.width;
+            const exportWidth = Math.max(element.scrollWidth, tableScroll.scrollWidth);
+
             controls.style.display = 'none';
+            element.style.width = `${exportWidth}px`;
+            tableScroll.style.overflow = 'visible';
+            tableScroll.style.width = `${exportWidth}px`;
+
+            const restoreExportView = () => {
+                controls.style.display = 'flex';
+                element.style.width = originalElementWidth;
+                tableScroll.style.overflow = originalTableOverflow;
+                tableScroll.style.width = originalTableWidth;
+            };
 
             html2pdf().set({
                 margin: 0.2,
@@ -769,9 +931,9 @@
             }).from(element).toPdf().get('pdf').then((pdf) => {
                 addPDFWatermark(pdf);
             }).save().then(() => {
-                controls.style.display = 'flex';
+                restoreExportView();
             }).catch(() => {
-                controls.style.display = 'flex';
+                restoreExportView();
             });
         }
 
@@ -798,6 +960,7 @@
                 tr.insertBefore(createTextCell(''), statusTd);
             });
 
+            enableColumnDragging();
             saveState();
         }
 
@@ -815,6 +978,8 @@
                 btn.innerText = "Select Column to Remove";
                 table.classList.remove('delete-mode');
             }
+
+            enableColumnDragging();
         }
 
         function handleColDelete(th) {
@@ -881,6 +1046,7 @@
         window.onload = function () {
             initTable();
             restoreSavedState();
+            enableColumnDragging();
             bindAutoSave();
         };
     </script>
