@@ -433,6 +433,25 @@
             document.getElementById('pdfModal').classList.remove('active');
         }
 
+        const PDF_WATERMARK_TEXT = 'Shakir Designer';
+
+        function addPDFWatermark(pdf) {
+            const pageCount = pdf.internal.getNumberOfPages();
+            const pageWidth = pdf.internal.pageSize.getWidth();
+            const pageHeight = pdf.internal.pageSize.getHeight();
+
+            for (let pageNumber = 1; pageNumber <= pageCount; pageNumber++) {
+                pdf.setPage(pageNumber);
+                pdf.setFont('helvetica', 'bold');
+                pdf.setFontSize(46);
+                pdf.setTextColor(215, 215, 215);
+                pdf.text(PDF_WATERMARK_TEXT, pageWidth / 2, pageHeight / 2, {
+                    align: 'center',
+                    angle: -30
+                });
+            }
+        }
+
         function executePDFExport() {
             const name = document.getElementById('pdfFileName').value || "Report";
             closeExportModal();
@@ -447,7 +466,11 @@
                 image: { type: 'jpeg', quality: 0.98 },
                 html2canvas: { scale: 2 },
                 jsPDF: { unit: 'in', format: 'a4', orientation: 'landscape' }
-            }).from(element).save().then(() => {
+            }).from(element).toPdf().get('pdf').then((pdf) => {
+                addPDFWatermark(pdf);
+            }).save().then(() => {
+                controls.style.display = 'flex';
+            }).catch(() => {
                 controls.style.display = 'flex';
             });
         }
